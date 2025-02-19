@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>Whack A Pol</title>
+   <style>
+      #game-container {
+         text-align: center;
+         font-family: Arial, sans-serif;
+         cursor: default;
+         /* Change from none to default */
+      }
+
+      #score,
+      #timer {
+         font-size: 24px;
+         margin: 10px;
+      }
+
+      #grid {
+         display: grid;
+         grid-template-columns: repeat(3, 1fr);
+         gap: 10px;
+         width: 300px;
+         margin: 20px auto;
+      }
+
+      .cell {
+         position: relative;
+         width: 100px;
+         height: 100px;
+         background-color: #ccc;
+         overflow: hidden;
+         cursor: default;
+         /* Change from none to default */
+      }
+
+      .politician {
+         position: absolute;
+         bottom: 0;
+         left: 0;
+         width: 100%;
+         height: 100%;
+         background-size: cover;
+         transform: translateY(100%);
+         transition: transform 0.3s ease;
+      }
+
+      .politician.up {
+         transform: translateY(0);
+      }
+
+      #game-over {
+         display: none;
+         position: fixed;
+         top: 50%;
+         left: 50%;
+         transform: translate(-50%, -50%);
+         background: rgba(255, 255, 255, 0.9);
+         padding: 20px;
+         border: 2px solid #333;
+         text-align: center;
+      }
+
+      #game-over h2 {
+         margin: 0 0 10px;
+      }
+
+      #game-over button {
+         padding: 10px 20px;
+         font-size: 16px;
+         cursor: pointer;
+      }
+
+      #instructions {
+         position: fixed;
+         top: 50%;
+         left: 50%;
+         transform: translate(-50%, -50%);
+         background: rgba(255, 255, 255, 0.95);
+         padding: 30px;
+         border: 2px solid #333;
+         text-align: center;
+         z-index: 1000;
+         box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+         border-radius: 10px;
+         max-width: 80%;
+      }
+
+      #instructions h2 {
+         margin: 0 0 20px;
+         color: #333;
+      }
+
+      #instructions p {
+         margin: 10px 0;
+         line-height: 1.5;
+      }
+
+      #start-game {
+         padding: 15px 30px;
+         font-size: 18px;
+         background-color: #4CAF50;
+         color: white;
+         border: none;
+         border-radius: 5px;
+         cursor: pointer;
+         margin-top: 20px;
+         transition: background-color 0.3s;
+      }
+
+      #start-game:hover {
+         background-color: #45a049;
+      }
+
+      /* Add hammer cursor styles */
+      #hammer-cursor {
+         position: fixed;
+         width: 80px;
+         height: 80px;
+         pointer-events: none;
+         z-index: 9999;
+         transform: translate(-50%, -50%) rotate(45deg);
+         transition: transform 0.1s;
+         display: none;
+         filter: drop-shadow(2px 2px 2px rgba(0, 0, 0, 0.3));
+         object-fit: contain;
+      }
+
+      /* Add game-active class for when the game is running */
+      .game-active {
+         cursor: none !important;
+      }
+
+      .game-active .cell {
+         cursor: none !important;
+      }
+   </style>
+</head>
+
+<body>
+   <img id="hammer-cursor" src="hammer.png" alt="hammer cursor">
+   <div id="game-container">
+      <div id="score">Score: 0</div>
+      <div id="timer">Time: 60</div>
+      <div id="grid">
+         <div class="cell"></div>
+         <div class="cell"></div>
+         <div class="cell"></div>
+         <div class="cell"></div>
+         <div class="cell"></div>
+         <div class="cell"></div>
+         <div class="cell"></div>
+         <div class="cell"></div>
+         <div class="cell"></div>
+      </div>
+   </div>
+   <div id="instructions">
+      <h2>How to Play</h2>
+      <p>Click on the politicians as they pop up to whack them!</p>
+      <p>Each politician is worth different points:</p>
+      <ul style="list-style: none; padding: 0;">
+         <li>Hillary: 10 points</li>
+         <li>AOC: 20 points</li>
+         <li>Schiff: 15 points</li>
+      </ul>
+      <p>You have 60 seconds to get the highest score possible.</p>
+      <p>The game gets faster as time goes on!</p>
+      <button id="start-game">Start Game</button>
+   </div>
+   <div id="game-over">
+      <h2>Game Over</h2>
+      <p>Your score: <span id="final-score"></span></p>
+      <button id="restart">Play Again</button>
+   </div>
+   <script>
+      // Game variables
+      let score = 0;
+      let timeLeft = 60;
+      let gameInterval;
+      let popInterval;
+      let popIntervalTime = 1500;
+      let difficultyTimer = 10;
+
+
+      const politicians = [
+         { name: 'Hillary', points: 30, image: 'hillary.png', popSound: 'pop.mp3', whackSound: 'punch.mp3' },
+         { name: 'AOC', points: 20, image: 'aoc.png', popSound: 'pop.mp3', whackSound: 'punch.mp3' },
+         { name: 'Schiff', points: 5, image: 'schiff.png', popSound: 'pop.mp3', whackSound: 'punch.mp3' }
+      ];
+
+      // Preload sounds
+      const sounds = {
+         hillary_pop: new Audio(politicians[0].popSound),
+         hillary_whack: new Audio(politicians[0].whackSound),
+         aoc_pop: new Audio(politicians[1].popSound),
+         aoc_whack: new Audio(politicians[1].whackSound),
+         schiff_pop: new Audio(politicians[2].popSound),
+         schiff_whack: new Audio(politicians[2].whackSound)
+      };
+
+      // Select DOM elements
+      const scoreDisplay = document.getElementById('score');
+      const timerDisplay = document.getElementById('timer');
+      const cells = document.querySelectorAll('.cell');
+      const gameOverScreen = document.getElementById('game-over');
+      const finalScoreDisplay = document.getElementById('final-score');
+      const restartButton = document.getElementById('restart');
+      const instructionsScreen = document.getElementById('instructions');
+      const startGameButton = document.getElementById('start-game');
+
+      // Start the game
+      function startGame() {
+         score = 0;
+         timeLeft = 60;
+         popIntervalTime = 1500;
+         difficultyTimer = 10;
+         updateScore();
+         updateTimer();
+         gameOverScreen.style.display = 'none';
+         instructionsScreen.style.display = 'none';
+
+         // Add game-active class to enable hammer cursor
+         document.body.classList.add('game-active');
+
+         gameInterval = setInterval(gameLoop, 1000);
+         popInterval = setInterval(popUp, popIntervalTime);
+
+         // Show and enable hammer cursor
+         initHammerCursor();
+      }
+
+      // Main game loop
+      function gameLoop() {
+         timeLeft--;
+         difficultyTimer--;
+         if (difficultyTimer <= 0) {
+            popIntervalTime = Math.max(500, popIntervalTime - 100);
+            clearInterval(popInterval);
+            popInterval = setInterval(popUp, popIntervalTime);
+            difficultyTimer = 10;
+         }
+         updateTimer();
+         if (timeLeft <= 0) {
+            endGame();
+         }
+      }
+
+      // Pop up a politician
+      function popUp() {
+         const emptyCells = Array.from(cells).filter(cell => !cell.querySelector('.politician'));
+         if (emptyCells.length === 0) return;
+         const randomCell = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+         const randomPolitician = politicians[Math.floor(Math.random() * politicians.length)];
+         const politicianDiv = document.createElement('div');
+         politicianDiv.classList.add('politician');
+         politicianDiv.style.backgroundImage = `url(${randomPolitician.image})`;
+         politicianDiv.dataset.politician = randomPolitician.name;
+         randomCell.appendChild(politicianDiv);
+         sounds[`${randomPolitician.name.toLowerCase()}_pop`].play();
+         setTimeout(() => {
+            politicianDiv.classList.add('up');
+         }, 10);
+         setTimeout(() => {
+            if (politicianDiv.parentElement) {
+               politicianDiv.classList.remove('up');
+               setTimeout(() => {
+                  if (politicianDiv.parentElement) {
+                     randomCell.removeChild(politicianDiv);
+                  }
+               }, 300);
+            }
+         }, 1500);
+      }
+
+      // Handle whacking
+      function whack(e) {
+         const cell = e.target.classList.contains('cell') ? e.target : e.target.parentElement;
+         const politicianDiv = cell.querySelector('.politician.up') || (e.target.classList.contains('politician') ? e.target : null);
+         
+         if (politicianDiv) {
+            const politicianName = politicianDiv.dataset.politician;
+            const politician = politicians.find(p => p.name === politicianName);
+            score += politician.points;
+            updateScore();
+            sounds[`${politicianName.toLowerCase()}_whack`].play();
+            politicianDiv.style.transition = 'transform 0.1s';
+            politicianDiv.style.transform = 'scale(0.8)';
+            setTimeout(() => {
+               if (politicianDiv.parentElement) {
+                  cell.removeChild(politicianDiv);
+               }
+            }, 100);
+         }
+      }
+
+      // Update displays
+      function updateScore() {
+         scoreDisplay.textContent = `Score: ${score}`;
+      }
+
+      function updateTimer() {
+         timerDisplay.textContent = `Time: ${timeLeft}`;
+      }
+
+      // End the game
+      function endGame() {
+         clearInterval(gameInterval);
+         clearInterval(popInterval);
+         document.querySelectorAll('.politician').forEach(p => p.remove());
+         gameOverScreen.style.display = 'block';
+         finalScoreDisplay.textContent = score;
+
+         // Remove game-active class to disable hammer cursor
+         document.body.classList.remove('game-active');
+
+         // Hide hammer cursor
+         const hammer = document.getElementById('hammer-cursor');
+         hammer.style.display = 'none';
+
+         // Remove event listeners
+         removeHammerCursorListeners();
+      }
+
+      // Store event listener references
+      let mouseMoveListener;
+      let mouseDownListener;
+      let mouseUpListener;
+      let mouseLeaveListener;
+      let mouseEnterListener;
+
+      // Hammer cursor tracking
+      function initHammerCursor() {
+         const hammer = document.getElementById('hammer-cursor');
+
+         // Remove any existing listeners before adding new ones
+         removeHammerCursorListeners();
+
+         mouseMoveListener = (e) => {
+            hammer.style.display = 'block';
+            hammer.style.left = e.pageX + 'px';
+            hammer.style.top = e.pageY + 'px';
+         };
+
+         mouseDownListener = () => {
+            hammer.style.transition = 'transform 0.1s';
+            hammer.style.transform = 'translate(-50%, -50%) rotate(-45deg) scale(0.8)';
+            setTimeout(() => {
+               hammer.style.transition = 'transform 0.1s';
+               hammer.style.transform = 'translate(-50%, -50%) rotate(45deg) scale(1)';
+            }, 500);
+         };
+
+         mouseUpListener = () => {
+            // Remove the mouseup listener since we're using setTimeout for the animation
+         };
+
+         mouseLeaveListener = () => {
+            hammer.style.display = 'none';
+         };
+
+         mouseEnterListener = () => {
+            if (document.body.classList.contains('game-active')) {
+               hammer.style.display = 'block';
+            }
+         };
+
+         document.addEventListener('mousemove', mouseMoveListener);
+         document.addEventListener('mousedown', mouseDownListener);
+         document.addEventListener('mouseup', mouseUpListener);
+         document.addEventListener('mouseleave', mouseLeaveListener);
+         document.addEventListener('mouseenter', mouseEnterListener);
+      }
+
+      // Function to remove hammer cursor event listeners
+      function removeHammerCursorListeners() {
+         if (mouseMoveListener) {
+            document.removeEventListener('mousemove', mouseMoveListener);
+            document.removeEventListener('mousedown', mouseDownListener);
+            document.removeEventListener('mouseup', mouseUpListener);
+            document.removeEventListener('mouseleave', mouseLeaveListener);
+            document.removeEventListener('mouseenter', mouseEnterListener);
+         }
+      }
+
+      // Initialize game
+      function initGame() {
+         // Show instructions, hide game over screen
+         instructionsScreen.style.display = 'block';
+         gameOverScreen.style.display = 'none';
+
+         // Reset all intervals and scores
+         clearInterval(gameInterval);
+         clearInterval(popInterval);
+         document.querySelectorAll('.politician').forEach(p => p.remove());
+
+         // Remove game-active class
+         document.body.classList.remove('game-active');
+
+         // Hide hammer cursor
+         const hammer = document.getElementById('hammer-cursor');
+         hammer.style.display = 'none';
+
+         // Update displays
+         score = 0;
+         timeLeft = 60;
+         updateScore();
+         updateTimer();
+      }
+
+      // Event listeners
+      cells.forEach(cell => cell.addEventListener('click', whack));
+      startGameButton.addEventListener('click', startGame);
+      restartButton.addEventListener('click', initGame);
+
+      // Initialize the game instead of starting it immediately
+      initGame();
+   </script>
+</body>
+
+</html>
